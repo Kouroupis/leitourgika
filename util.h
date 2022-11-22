@@ -670,6 +670,7 @@ static inline void* argvunpack(size_t argc, const char** argv, int argl, void* a
 	}
 	return a;
 }
+*/ eisai blakas
 
 
 #endif
