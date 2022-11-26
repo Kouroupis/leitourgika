@@ -35,6 +35,7 @@ static inline void initialize_PCB(PCB* pcb)
   pcb->pstate = FREE;
   pcb->argl = 0;
   pcb->args = NULL;
+  pcb->thread_count = 0;
 
   for(int i=0;i<MAX_FILEID;i++)
     pcb->FIDT[i] = NULL;
@@ -43,6 +44,11 @@ static inline void initialize_PCB(PCB* pcb)
   rlnode_init(& pcb->exited_list, NULL);
   rlnode_init(& pcb->children_node, pcb);
   rlnode_init(& pcb->exited_node, pcb);
+
+  //
+  rlnode_init(& pcb->ptcb_list, NULL);
+  //
+
   pcb->child_exit = COND_INIT;
 }
 
@@ -109,8 +115,8 @@ void release_PCB(PCB* pcb)
  */
 
 /*
-	This function is provided as an argument to spawn,
-	to execute the main thread of a process.
+  This function is provided as an argument to spawn,
+  to execute the main thread of a process.
 */
 void start_main_thread()
 {
@@ -124,21 +130,8 @@ void start_main_thread()
   Exit(exitval);
 }
 
-void start_thread()
-{
-  int exitval;
-
-  Task call =  cur_thread()->ptcb->task;
-  int argl = cur_thread()->ptcb->argl;
-  void* args = cur_thread()->ptcb->args;
-
-  exitval = call(argl,args);
-  ThreadExit(exitval);
-}
-
-
 /*
-	System call to create a new process.
+  System call to create a new process.
  */
 Pid_t sys_Exec(Task call, int argl, void* args)
 {
@@ -191,27 +184,28 @@ Pid_t sys_Exec(Task call, int argl, void* args)
    */
   if(call != NULL) {
 
-    PTCB* ptcb = xmalloc(sizeof(PTCB));
-
     newproc->main_thread = spawn_thread(newproc, start_main_thread);
 
-    rlnode_init(&ptcb->ptcb_list_node, NULL);
-    rlist_push_front(&ptcb->ptcb_list_node, &newproc->ptcb_list);
+    PTCB* ptcb = (PTCB* )xmalloc(sizeof(PTCB));
 
     ptcb->tcb = newproc->main_thread;
     ptcb->task = call;
     ptcb->argl = argl;
     ptcb->args = args;
 
+    newproc->main_thread->ptcb = ptcb;
+
     ptcb->exited = 0;
     ptcb->detached = 0;
     ptcb->exit_cv = COND_INIT;
   
     ptcb->refcount = 0;
-    
-    newproc->main_thread->ptcb = ptcb;    
 
-    newproc->thread_count++;
+    rlnode_init(&ptcb->ptcb_list_node, ptcb);
+    rlnode_init(&newproc->ptcb_list, newproc);
+    rlist_push_back(&newproc->ptcb_list, &ptcb->ptcb_list_node);
+    
+    newproc->thread_count = 1;
 
     
     wakeup(newproc->main_thread);
@@ -339,9 +333,7 @@ void sys_Exit(int exitval)
 
   }
 
-  curproc->exitval = exitval;
-
-  ThreadExit(exitval);
+  sys_ThreadExit(exitval);
  
   
 }
@@ -350,6 +342,6 @@ void sys_Exit(int exitval)
 
 Fid_t sys_OpenInfo()
 {
-	return NOFILE;
+  return NOFILE;
 }
 

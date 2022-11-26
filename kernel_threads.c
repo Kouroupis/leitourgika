@@ -5,29 +5,29 @@
 #include "kernel_cc.h"
 #include "kernel_streams.h"
 
+
+void start_thread()
+{
+  int exitval;
+
+  Task call =  CURTHREAD->ptcb->task;
+  int argl = CURTHREAD->ptcb->argl;
+  void* args = CURTHREAD->ptcb->args;
+
+  exitval = call(argl,args);
+  ThreadExit(exitval);
+}
+
 /** 
   @brief Create a new thread in the current process.
   */
 Tid_t sys_CreateThread(Task task, int argl, void* args)
 {
-	//Initialize and return a new TCB(spawn)
 
   TCB* tcb = spawn_thread(CURPROC, start_thread);
   
-  //Acquire PTCB
-
   PTCB* ptcb = xmalloc(sizeof(PTCB));
 
-  rlnode_init(&ptcb->ptcb_list_node, NULL);
-  rlist_push_front(&ptcb->ptcb_list_node, &CURPROC->ptcb_list);
-
-  CURPROC->thread_count++;
-
-  tcb->ptcb = ptcb;
-
-  //Initialize PTCB
-
-  ptcb->tcb = tcb;
   ptcb->task = task;
   ptcb->argl = argl;
   ptcb->args = args;
@@ -35,9 +35,17 @@ Tid_t sys_CreateThread(Task task, int argl, void* args)
   ptcb->exited = 0;
   ptcb->detached = 0;
   ptcb->exit_cv = COND_INIT;
-
+  ptcb->exitval = CURPROC->exitval;
   ptcb->refcount = 0;
 
+  tcb->ptcb = ptcb;
+  ptcb->tcb = tcb;
+
+  rlnode_init(&ptcb->ptcb_list_node, ptcb);
+  rlist_push_back(&CURPROC->ptcb_list, &ptcb->ptcb_list_node);
+
+  CURPROC->thread_count++;
+  
   //Wake up TCB
 
   wakeup(tcb);
@@ -50,7 +58,7 @@ Tid_t sys_CreateThread(Task task, int argl, void* args)
  */
 Tid_t sys_ThreadSelf()
 {
-	return (Tid_t) cur_thread()->ptcb;
+	return (Tid_t) CURTHREAD->ptcb;
 }
 
 /**
@@ -58,9 +66,11 @@ Tid_t sys_ThreadSelf()
   */
 int sys_ThreadJoin(Tid_t tid, int* exitval)
 {
-  PTCB* ptcb = (PTCB*) tid;
+  PTCB* ptcb = NULL;
 
   if(rlist_find(&CURPROC->ptcb_list, &tid, NULL))
+    ptcb = (PTCB*)tid;
+  if(ptcb == NULL)
     return -1;
   if(tid == ThreadSelf())
     return -1;
@@ -71,13 +81,23 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
 
   ptcb->refcount++;
   
-  int exit = kernel_wait(&ptcb->exit_cv, SCHED_USER);
-  exitval = &exit;
+  while(ptcb->exited != 1 && ptcb->detached != 1){
+    kernel_wait(&ptcb->exit_cv, SCHED_USER);
+  }
 
   ptcb->refcount--;
 
-  Cond_Broadcast(&ptcb->exit_cv);
-  
+  if(ptcb->detached)
+    return -1;
+
+  if(exitval!=NULL)
+    *exitval=ptcb->exitval;
+
+  if(ptcb->refcount == 0){
+    rlist_remove(&ptcb->ptcb_list_node);
+    free(ptcb);
+  }
+
   return 0;
 }
 
@@ -88,14 +108,15 @@ int sys_ThreadDetach(Tid_t tid)
 {
 	PTCB* ptcb = (PTCB*) tid;
 
-  if(tid == 0)
+  if(ptcb == NULL)
     return -1;
   if(ptcb->exited == 1)
     return -1;
 
-  Cond_Broadcast(&ptcb->exit_cv);
-
   ptcb->detached = 1;
+
+  kernel_broadcast(&ptcb->exit_cv);
+  ptcb->refcount=0;
 
   return 0;
 
