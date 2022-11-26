@@ -45,7 +45,7 @@ static inline void initialize_PCB(PCB* pcb)
   rlnode_init(& pcb->children_node, pcb);
   rlnode_init(& pcb->exited_node, pcb);
 
-  //
+  //Init ptcb list
   rlnode_init(& pcb->ptcb_list, NULL);
   //
 
@@ -130,6 +130,20 @@ void start_main_thread()
   Exit(exitval);
 }
 
+void start_thread()
+{
+  int exitval;
+
+  Task call =  cur_thread()->ptcb->task;
+  int argl = cur_thread()->ptcb->argl;
+  void* args = cur_thread()->ptcb->args;
+
+  exitval = call(argl,args);
+  ThreadExit(exitval);
+}
+
+
+
 /*
   System call to create a new process.
  */
@@ -189,17 +203,19 @@ Pid_t sys_Exec(Task call, int argl, void* args)
     PTCB* ptcb = (PTCB* )xmalloc(sizeof(PTCB));
 
     ptcb->tcb = newproc->main_thread;
-    ptcb->task = call;
+
+    ptcb->task = newproc->main_task;
+
     ptcb->argl = argl;
     ptcb->args = args;
-
-    newproc->main_thread->ptcb = ptcb;
-
     ptcb->exited = 0;
     ptcb->detached = 0;
     ptcb->exit_cv = COND_INIT;
-  
     ptcb->refcount = 0;
+
+    ptcb->exitval = newproc->exitval;
+
+    newproc->main_thread->ptcb = ptcb;
 
     rlnode_init(&ptcb->ptcb_list_node, ptcb);
     rlnode_init(&newproc->ptcb_list, newproc);
