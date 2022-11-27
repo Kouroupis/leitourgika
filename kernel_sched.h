@@ -119,6 +119,8 @@ typedef struct thread_control_block {
 	enum SCHED_CAUSE curr_cause; /**< @brief The endcause for the current time-slice */
 	enum SCHED_CAUSE last_cause; /**< @brief The endcause for the last time-slice */
 
+  int priority;
+
 #ifndef NVALGRIND
 	unsigned valgrind_stack_id; /**< @brief Valgrind helper for stacks. 
 

@@ -11,6 +11,10 @@
 #include <valgrind/valgrind.h>
 #endif
 
+#define queueNum 3 //Number of queues
+#define maxYieldCalls 100
+
+int yieldCalls = 0;
 
 /********************************************
 	
@@ -171,6 +175,8 @@ TCB* spawn_thread(PCB* pcb, void (*func)())
 	tcb->last_cause = SCHED_IDLE;
 	tcb->curr_cause = SCHED_IDLE;
 
+	tcb->priority = queueNum-1;
+
 	/* Compute the stack segment address and size */
 	void* sp = ((void*)tcb) + THREAD_TCB_SIZE;
 
@@ -225,7 +231,7 @@ void release_TCB(TCB* tcb)
   Both of these structures are protected by @c sched_spinlock.
 */
 
-rlnode SCHED; /* The scheduler queue */
+rlnode SCHED[queueNum]; /* The scheduler queue */
 rlnode TIMEOUT_LIST; /* The list of threads with a timeout */
 Mutex sched_spinlock = MUTEX_INIT; /* spinlock for scheduler queue */
 
@@ -268,7 +274,7 @@ static void sched_register_timeout(TCB* tcb, TimerDuration timeout)
 static void sched_queue_add(TCB* tcb)
 {
 	/* Insert at the end of the scheduling list */
-	rlist_push_back(&SCHED, &tcb->sched_node);
+	rlist_push_back(&SCHED[tcb->priority], &tcb->sched_node);
 
 	/* Restart possibly halted cores */
 	cpu_core_restart_one();
@@ -326,8 +332,20 @@ static void sched_wakeup_expired_timeouts()
 */
 static TCB* sched_queue_select(TCB* current)
 {
+
+	int selectNextThread = queueNum;
+
+	for(int i = queueNum-1; i >= 0; i--){
+		
+		if(!is_rlist_empty(&SCHED[i])){
+			selectNextThread = i;
+			break;
+		}
+	}
+	
+
 	/* Get the head of the SCHED list */
-	rlnode* sel = rlist_pop_front(&SCHED);
+	rlnode* sel = rlist_pop_front(&SCHED[selectNextThread]);
 
 	TCB* next_thread = sel->tcb; /* When the list is empty, this is NULL */
 
@@ -405,6 +423,28 @@ void sleep_releasing(Thread_state state, Mutex* mx, enum SCHED_CAUSE cause,
 
 void yield(enum SCHED_CAUSE cause)
 {
+
+	yieldCalls++;
+
+	if(yieldCalls == maxYieldCalls){
+		
+		for(int i = 0; i < queueNum-1; i++){
+		
+			if(!is_rlist_empty(&SCHED[i])){
+
+				for(int j=0; j < rlist_len((&SCHED[i]));j++){
+					
+					TCB* tcb = rlist_pop_front(&SCHED[i])->tcb;
+					tcb->priority++;
+					rlist_push_back(&SCHED[i+1], &tcb->sched_node);
+				}
+
+			}
+		}
+
+	}
+
+
 	/* Reset the timer, so that we are not interrupted by ALARM */
 	TimerDuration remaining = bios_cancel_timer();
 
@@ -441,6 +481,43 @@ void yield(enum SCHED_CAUSE cause)
 		CURTHREAD = next;
 		cpu_swap_context(&current->context, &next->context);
 	}
+
+	switch(cause){
+
+	/*Thread quantum has expired*/
+	case SCHED_QUANTUM:
+
+		if(current->priority > 0) //decrease priority if > 0
+			current->priority--;
+
+		break;
+
+	/*Interactive thread*/
+	case SCHED_IO:
+
+		if(current->priority < queueNum-1) //increase priority if < num of queues-1
+			current->priority++;
+
+		break;
+
+	/*Priority inversion*/
+	case SCHED_MUTEX:
+
+		if(current->curr_cause == current->last_cause){ 
+			
+			if(current->priority > 0) //decrease priority if > 0
+			current->priority--;
+
+		}
+
+		break;
+
+	default:
+
+		break;
+
+	}
+
 
 	/* This is where we get after we are switched back on! A long time
 	   may have passed. Start a new timeslice...
@@ -521,7 +598,10 @@ static void idle_thread()
  */
 void initialize_scheduler()
 {
-	rlnode_init(&SCHED, NULL);
+	for(int i = 0; i < queueNum; i++){
+		rlnode_init(&SCHED[i], NULL);
+	}
+
 	rlnode_init(&TIMEOUT_LIST, NULL);
 }
 
