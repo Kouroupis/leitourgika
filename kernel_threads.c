@@ -12,20 +12,13 @@
 Tid_t sys_CreateThread(Task task, int argl, void* args)
 {
 
+  /*Init and return a new TCB*/
   TCB* tcb = spawn_thread(CURPROC, start_thread);
   
-  PTCB* ptcb = xmalloc(sizeof(PTCB));
+  /*Acquire a PTCB*/
+  PTCB* ptcb = (PTCB*)xmalloc(sizeof(PTCB)); //Allocate space
 
-  ptcb->task = task;
-  ptcb->argl = argl;
-  ptcb->args = args;
-  ptcb->exited = 0;
-  ptcb->detached = 0;
-  ptcb->exit_cv = COND_INIT;
-  ptcb->refcount = 0;
-
-  ptcb->exitval = CURPROC->exitval;
-
+  //Make connections with PCB and TCB
   tcb->ptcb = ptcb;
   ptcb->tcb = tcb;
 
@@ -33,9 +26,21 @@ Tid_t sys_CreateThread(Task task, int argl, void* args)
   rlist_push_back(&CURPROC->ptcb_list, &ptcb->ptcb_list_node);
 
   CURPROC->thread_count++;
-  
-  //Wake up TCB
 
+  /*Init PTCB*/
+  ptcb->task = task;
+  ptcb->argl = argl;
+  ptcb->args = args;
+
+  ptcb->exitval = CURPROC->exitval;
+  
+  ptcb->exited = 0;
+  ptcb->detached = 0;
+  ptcb->exit_cv = COND_INIT;
+  
+  ptcb->refcount = 1;
+  
+  /*Wake up TCB*/
   wakeup(ptcb->tcb);
 
   return (Tid_t) ptcb;
@@ -54,19 +59,21 @@ Tid_t sys_ThreadSelf()
   */
 int sys_ThreadJoin(Tid_t tid, int* exitval)
 {
+  /*Checks*/
   PTCB* ptcb = NULL;
 
-  if(rlist_find(&CURPROC->ptcb_list, (PTCB*)tid, NULL))
+  if(rlist_find(&CURPROC->ptcb_list, (PTCB*)tid, NULL) != NULL) //Check if tid exists in ptcb_list
     ptcb = (PTCB*)tid;
   if(ptcb == NULL)
     return -1;
-  if(sys_ThreadSelf() == tid)
+  if(sys_ThreadSelf() == tid) //Check if trying to join itself
     return -1;
-  if(ptcb->exited == 1)
+  if(ptcb->exited == 1) //Check if exited
     return -1;
-  if(ptcb->detached == 1)
+  if(ptcb->detached == 1) //Check if detached
     return -1;
 
+  /*Wait*/
   ptcb->refcount++;
   
   while(ptcb->exited != 1 && ptcb->detached != 1){
@@ -81,7 +88,8 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
   if(exitval!=NULL)
     *exitval=ptcb->exitval;
 
-  if(ptcb->refcount == 0){
+  
+  if(ptcb->refcount == 1){
     rlist_remove(&ptcb->ptcb_list_node);
     free(ptcb);
   }
@@ -96,19 +104,15 @@ int sys_ThreadDetach(Tid_t tid)
 {
 	PTCB* ptcb = NULL;
 
-  if(rlist_find(&CURPROC->ptcb_list, (PTCB*)tid, NULL))
+  if(rlist_find(&CURPROC->ptcb_list, (PTCB*)tid, NULL) != NULL) //Check if tid exists in ptcb_list
     ptcb = (PTCB*)tid;
   if(ptcb == NULL)
     return -1;
-  if(ptcb->exited == 1)
+  if(ptcb->exited == 1) //Check if exited
     return -1;
 
-  ptcb->detached = 1;
-
-  if(ptcb->refcount>=1){
-    kernel_broadcast(&ptcb->exit_cv);
-    ptcb->refcount=0;
-  }
+  ptcb->detached = 1; //Detach thread
+  kernel_broadcast(&ptcb->exit_cv);
 
   return 0;
 
@@ -122,12 +126,13 @@ void sys_ThreadExit(int exitval)
   PTCB* ptcb = cur_thread()->ptcb;
   ptcb->exited = 1;
   ptcb->exitval=exitval;
-  CURPROC->thread_count--;
 
   kernel_broadcast(&ptcb->exit_cv);
 
 
   PCB *curproc = CURPROC;  /* cache for efficiency */
+
+  curproc->thread_count--;
 
   if(curproc->thread_count == 0){
 

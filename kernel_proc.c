@@ -200,30 +200,33 @@ Pid_t sys_Exec(Task call, int argl, void* args)
 
     newproc->main_thread = spawn_thread(newproc, start_main_thread);
 
-    PTCB* ptcb = (PTCB* )xmalloc(sizeof(PTCB));
+    /*Acquire a PTCB*/
+    PTCB* ptcb = (PTCB*)xmalloc(sizeof(PTCB));
 
+    //Make connections with PCB and TCB
     ptcb->tcb = newproc->main_thread;
-
-    ptcb->task = newproc->main_task;
-
-    ptcb->argl = argl;
-    ptcb->args = args;
-    ptcb->exited = 0;
-    ptcb->detached = 0;
-    ptcb->exit_cv = COND_INIT;
-    ptcb->refcount = 0;
-
-    ptcb->exitval = newproc->exitval;
-
     newproc->main_thread->ptcb = ptcb;
-
+    
     rlnode_init(&ptcb->ptcb_list_node, ptcb);
     rlnode_init(&newproc->ptcb_list, newproc);
     rlist_push_back(&newproc->ptcb_list, &ptcb->ptcb_list_node);
     
     newproc->thread_count = 1;
 
+    /*Init PTCB*/
+    ptcb->task = call;
+    ptcb->argl = argl;
+    ptcb->args = args;
     
+    ptcb->exitval = newproc->exitval;
+    
+    ptcb->exited = 0;
+    ptcb->detached = 0;
+    ptcb->exit_cv = COND_INIT;
+    
+    ptcb->refcount = 1;
+
+    /*Wake up TCB*/
     wakeup(newproc->main_thread);
   
   }

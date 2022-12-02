@@ -12,7 +12,7 @@
 #endif
 
 #define queueNum 3 //Number of queues
-#define maxYieldCalls 100
+#define maxYieldCalls 69
 
 int yieldCalls = 0;
 
@@ -333,7 +333,7 @@ static void sched_wakeup_expired_timeouts()
 static TCB* sched_queue_select(TCB* current)
 {
 
-	int selectNextThread = queueNum;
+	int selectNextThread = queueNum-1;
 
 	for(int i = queueNum-1; i >= 0; i--){
 		
@@ -426,7 +426,10 @@ void yield(enum SCHED_CAUSE cause)
 
 	yieldCalls++;
 
+	/*Priority Boost*/
 	if(yieldCalls == maxYieldCalls){
+
+		yieldCalls = 0;
 		
 		for(int i = 0; i < queueNum-1; i++){
 		
