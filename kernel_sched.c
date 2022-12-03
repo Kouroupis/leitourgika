@@ -424,22 +424,23 @@ void sleep_releasing(Thread_state state, Mutex* mx, enum SCHED_CAUSE cause,
 void yield(enum SCHED_CAUSE cause)
 {
 
-	yieldCalls++;
+	yieldCalls++; //Increase yield counter every time yield is called
 
 	/*Priority Boost*/
-	if(yieldCalls == maxYieldCalls){
+	if(yieldCalls == maxYieldCalls){	//If we reach max number of yield calls
 
-		yieldCalls = 0;
+		yieldCalls = 0;	//Reset counter
 		
 		for(int i = 0; i < queueNum-1; i++){
 		
-			if(!is_rlist_empty(&SCHED[i])){
+			if(!is_rlist_empty(&SCHED[i])){	//Check if queue is empty
 
-				for(int j=0; j < rlist_len((&SCHED[i]));j++){
+				/*Increase priority of each thread in queue*/
+				for(int j=0; j < rlist_len((&SCHED[i]));j++){	
 					
-					TCB* tcb = rlist_pop_front(&SCHED[i])->tcb;
-					tcb->priority++;
-					rlist_push_back(&SCHED[i+1], &tcb->sched_node);
+					TCB* tcb = rlist_pop_front(&SCHED[i])->tcb; //Remove the head of the queue
+					tcb->priority++; //Increase priority
+					rlist_push_back(&SCHED[i+1], &tcb->sched_node); //Put it at the back of the next queue
 				}
 
 			}
@@ -601,7 +602,7 @@ static void idle_thread()
  */
 void initialize_scheduler()
 {
-	for(int i = 0; i < queueNum; i++){
+	for(int i = 0; i < queueNum; i++){	//Init every queue
 		rlnode_init(&SCHED[i], NULL);
 	}
 

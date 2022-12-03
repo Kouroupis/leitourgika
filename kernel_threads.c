@@ -5,6 +5,30 @@
 #include "kernel_cc.h"
 #include "kernel_streams.h"
 
+/*
+
+Allages pou exoun ginei
+
+6.1 Threads
+
+-util.h: typedef ptcb
+-kernel_sched.h: ptcb kai edit thn tcb
+-kernel_proc.h: edit thn pcb
+-kernel_proc.c: sys_Exec(), sys_Exit(), start_thread(), initialize_PCB()
+-kernel_threads.c: Ola
+
+6.2 MLFQ
+
+-kernel_sched.h: int priority sthn tcb
+-kernel_sched.c: 
+  
+  define queueNum, maxYieldCalls kai int yieldCalls
+  to rlnode SCHED egine rlnode SCHED[queueNum]
+  yield(): switch(cause) kai priority boost
+  initialize_scheduler(): edit gia array
+  sched_queue_add()
+  sched_queue_select()
+*/
 
 /** 
   @brief Create a new thread in the current process.
@@ -68,11 +92,7 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
     return -1;
   if(sys_ThreadSelf() == tid) //Check if trying to join itself
     return -1;
-  if(ptcb->exited == 1) //Check if exited
-    return -1;
-  if(ptcb->detached == 1) //Check if detached
-    return -1;
-
+ 
   /*Wait*/
   ptcb->refcount++;
   
@@ -82,7 +102,7 @@ int sys_ThreadJoin(Tid_t tid, int* exitval)
 
   ptcb->refcount--;
 
-  if(ptcb->detached)
+  if(ptcb->detached)  //Check if detached
     return -1;
 
   if(exitval!=NULL)
