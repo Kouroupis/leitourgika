@@ -40,18 +40,13 @@ static inline void initialize_PCB(PCB* pcb)
   for(int i=0;i<MAX_FILEID;i++)
     pcb->FIDT[i] = NULL;
 
+  rlnode_init(& pcb->ptcb_list, pcb);
   rlnode_init(& pcb->children_list, NULL);
   rlnode_init(& pcb->exited_list, NULL);
   rlnode_init(& pcb->children_node, pcb);
   rlnode_init(& pcb->exited_node, pcb);
-
-  //Init ptcb list
-  rlnode_init(& pcb->ptcb_list, NULL);
-  //
-
   pcb->child_exit = COND_INIT;
 }
-
 
 static PCB* pcb_freelist;
 
@@ -115,8 +110,8 @@ void release_PCB(PCB* pcb)
  */
 
 /*
-  This function is provided as an argument to spawn,
-  to execute the main thread of a process.
+	This function is provided as an argument to spawn,
+	to execute the main thread of a process.
 */
 void start_main_thread()
 {
@@ -130,22 +125,9 @@ void start_main_thread()
   Exit(exitval);
 }
 
-void start_thread()
-{
-  int exitval;
-
-  Task call =  cur_thread()->ptcb->task;
-  int argl = cur_thread()->ptcb->argl;
-  void* args = cur_thread()->ptcb->args;
-
-  exitval = call(argl,args);
-  ThreadExit(exitval);
-}
-
-
 
 /*
-  System call to create a new process.
+	System call to create a new process.
  */
 Pid_t sys_Exec(Task call, int argl, void* args)
 {
@@ -199,36 +181,30 @@ Pid_t sys_Exec(Task call, int argl, void* args)
   if(call != NULL) {
 
     newproc->main_thread = spawn_thread(newproc, start_main_thread);
+    TCB* tcb=newproc->main_thread;
 
-    /*Acquire a PTCB*/
-    PTCB* ptcb = (PTCB*)xmalloc(sizeof(PTCB));
+    PTCB* ptcb=(PTCB*)xmalloc(sizeof(PTCB));
+    ptcb->task=call;
+    ptcb->argl=argl;
 
-    //Make connections with PCB and TCB
-    ptcb->tcb = newproc->main_thread;
-    newproc->main_thread->ptcb = ptcb;
-    
-    rlnode_init(&ptcb->ptcb_list_node, ptcb);
-    rlnode_init(&newproc->ptcb_list, newproc);
+    if(args!=NULL) {
+     ptcb->args=malloc(argl);
+     memcpy(ptcb->args, args, argl);
+    }
+    else{
+     ptcb->args=NULL;
+    }
+    ptcb->refcount=0;
+    ptcb->exited=0;
+    ptcb->detached=0;
+    ptcb->exit_cv=COND_INIT;
+    rlnode_init(&ptcb->ptcb_list_node,ptcb);
+    newproc->thread_count++;
+    ptcb->tcb=tcb;
+    tcb->ptcb=ptcb;
+    rlnode_init(&newproc->ptcb_list,newproc);   //initialize 
     rlist_push_back(&newproc->ptcb_list, &ptcb->ptcb_list_node);
-    
-    newproc->thread_count = 1;
-
-    /*Init PTCB*/
-    ptcb->task = call;
-    ptcb->argl = argl;
-    ptcb->args = args;
-    
-    ptcb->exitval = newproc->exitval;
-    
-    ptcb->exited = 0;
-    ptcb->detached = 0;
-    ptcb->exit_cv = COND_INIT;
-    
-    ptcb->refcount = 1;
-
-    /*Wake up TCB*/
     wakeup(newproc->main_thread);
-  
   }
 
 
@@ -338,10 +314,11 @@ void sys_Exit(int exitval)
 {
 
   PCB *curproc = CURPROC;  /* cache for efficiency */
+ // PTCB* ptcb=CURTHREAD->ptcb;
 
   /* First, store the exit status */
   curproc->exitval = exitval;
-
+  
   /* 
     Here, we must check that we are not the init task. 
     If we are, we must wait until all child processes exit. 
@@ -350,17 +327,14 @@ void sys_Exit(int exitval)
 
     while(sys_WaitChild(NOPROC,NULL)!=NOPROC);
 
-  }
-
-  sys_ThreadExit(exitval);
- 
-  
+  } 
+ sys_ThreadExit(exitval);
 }
 
 
 
 Fid_t sys_OpenInfo()
 {
-  return NOFILE;
+	return NOFILE;
 }
 

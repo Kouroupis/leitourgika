@@ -11,10 +11,6 @@
 #include <valgrind/valgrind.h>
 #endif
 
-#define queueNum 3 //Number of queues
-#define maxYieldCalls 69
-
-int yieldCalls = 0;
 
 /********************************************
 	
@@ -96,6 +92,8 @@ Mutex active_threads_spinlock = MUTEX_INIT;
 #define THREAD_TCB_SIZE \
 	(((sizeof(TCB) + SYSTEM_PAGE_SIZE - 1) / SYSTEM_PAGE_SIZE) * SYSTEM_PAGE_SIZE)
 
+#define NUM_OF_QUEUES 12 //Number of lists handling our threads, can change
+#define MAX_YIELD_CALLS 50
 #define THREAD_SIZE (THREAD_TCB_SIZE + THREAD_STACK_SIZE)
 
 //#define MMAPPED_THREAD_MEM
@@ -158,10 +156,10 @@ TCB* spawn_thread(PCB* pcb, void (*func)())
 {
 	/* The allocated thread size must be a multiple of page size */
 	TCB* tcb = (TCB*)allocate_thread(THREAD_SIZE);
-
+    tcb->priority=NUM_OF_QUEUES;
 	/* Set the owner */
 	tcb->owner_pcb = pcb;
-
+   
 	/* Initialize the other attributes */
 	tcb->type = NORMAL_THREAD;
 	tcb->state = INIT;
@@ -174,8 +172,6 @@ TCB* spawn_thread(PCB* pcb, void (*func)())
 	tcb->rts = QUANTUM;
 	tcb->last_cause = SCHED_IDLE;
 	tcb->curr_cause = SCHED_IDLE;
-
-	tcb->priority = queueNum-1;
 
 	/* Compute the stack segment address and size */
 	void* sp = ((void*)tcb) + THREAD_TCB_SIZE;
@@ -230,8 +226,8 @@ void release_TCB(TCB* tcb)
 
   Both of these structures are protected by @c sched_spinlock.
 */
-
-rlnode SCHED[queueNum]; /* The scheduler queue */
+int yield_calls=0;
+rlnode SCHED[NUM_OF_QUEUES]; /* The scheduler queue */
 rlnode TIMEOUT_LIST; /* The list of threads with a timeout */
 Mutex sched_spinlock = MUTEX_INIT; /* spinlock for scheduler queue */
 
@@ -332,24 +328,31 @@ static void sched_wakeup_expired_timeouts()
 */
 static TCB* sched_queue_select(TCB* current)
 {
-
-	int selectNextThread = queueNum-1;
-
-	for(int i = queueNum-1; i >= 0; i--){
-		
-		if(!is_rlist_empty(&SCHED[i])){
-			selectNextThread = i;
-			break;
-		}
-	}
-	
-
 	/* Get the head of the SCHED list */
-	rlnode* sel = rlist_pop_front(&SCHED[selectNextThread]);
+	//rlnode* sel = rlist_pop_front(&SCHED);
+    
+	//TCB* next_thread = sel->tcb; /* When the list is empty, this is NULL */
 
-	TCB* next_thread = sel->tcb; /* When the list is empty, this is NULL */
+    if( yield_calls > MAX_YIELD_CALLS){
+     boost();
+     yield_calls = 0;
+    }
 
+    TCB* next_thread=NULL; 
+	int i=NUM_OF_QUEUES;
+	int found=0;
+	while(i>0 && found==0){				//Going through the whole list
+		rlnode* sel = rlist_pop_front(&SCHED[i]);
+        if(sel->tcb!=NULL){
+		next_thread = sel->tcb; /* When the list is empty, this is NULL */
+        found=1;
+        }
+        else{
+		i--;
+	    }
+	}
 	if (next_thread == NULL)
+
 		next_thread = (current->state == READY) ? current : &CURCORE.idle_thread;
 
 	next_thread->its = QUANTUM;
@@ -419,36 +422,21 @@ void sleep_releasing(Thread_state state, Mutex* mx, enum SCHED_CAUSE cause,
 		preempt_on;
 }
 
+void boost(){
+for(int i=0; i<NUM_OF_QUEUES; i++){
+  for(int j=0; j<rlist_len(&SCHED[i]); j++){
+	rlnode *node=rlist_pop_front(&SCHED[i]);
+	if(node->tcb!=NULL){
+		node->tcb->priority++;
+		rlist_push_back(&SCHED[i+1],node);
+	}
+  }
+}
+}
 /* This function is the entry point to the scheduler's context switching */
 
 void yield(enum SCHED_CAUSE cause)
-{
-
-	yieldCalls++; //Increase yield counter every time yield is called
-
-	/*Priority Boost*/
-	if(yieldCalls == maxYieldCalls){	//If we reach max number of yield calls
-
-		yieldCalls = 0;	//Reset counter
-		
-		for(int i = 0; i < queueNum-1; i++){
-		
-			if(!is_rlist_empty(&SCHED[i])){	//Check if queue is empty
-
-				/*Increase priority of each thread in queue*/
-				for(int j=0; j < rlist_len((&SCHED[i]));j++){	
-					
-					TCB* tcb = rlist_pop_front(&SCHED[i])->tcb; //Remove the head of the queue
-					tcb->priority++; //Increase priority
-					rlist_push_back(&SCHED[i+1], &tcb->sched_node); //Put it at the back of the next queue
-				}
-
-			}
-		}
-
-	}
-
-
+{   
 	/* Reset the timer, so that we are not interrupted by ALARM */
 	TimerDuration remaining = bios_cancel_timer();
 
@@ -457,7 +445,32 @@ void yield(enum SCHED_CAUSE cause)
 
 	TCB* current = CURTHREAD; /* Make a local copy of current process, for speed */
 
+
+
 	Mutex_Lock(&sched_spinlock);
+        yield_calls++;
+        		//switch is written here to have the latest scheduler data available at any time
+		switch(cause){
+		case SCHED_QUANTUM:
+			if(current->priority>0)					//check if priority can go lower, priority++ means it get lower
+				current->priority=current->priority-1;
+			else
+				current->priority=0;
+			break;
+		case SCHED_MUTEX:
+
+			if(current->priority>0)					//same checks for mutex cause
+				current->priority=current->priority-1;
+			else
+				current->priority=0;
+			break;
+		 
+		case SCHED_IO: 
+			if(current->priority<NUM_OF_QUEUES)							//check if priority can go higher, highest priority always at 0
+				current->priority=current->priority+1;
+			break;
+		default: break;									//every other case leads to the same priority
+	}
 
 	/* Update CURTHREAD state */
 	if (current->state == RUNNING)
@@ -470,6 +483,7 @@ void yield(enum SCHED_CAUSE cause)
 
 	/* Wake up threads whose sleep timeout has expired */
 	sched_wakeup_expired_timeouts();
+    	
 
 	/* Get next */
 	TCB* next = sched_queue_select(current);
@@ -480,46 +494,11 @@ void yield(enum SCHED_CAUSE cause)
 
 	Mutex_Unlock(&sched_spinlock);
 
+  
 	/* Switch contexts */
 	if (current != next) {
 		CURTHREAD = next;
 		cpu_swap_context(&current->context, &next->context);
-	}
-
-	switch(cause){
-
-	/*Thread quantum has expired*/
-	case SCHED_QUANTUM:
-
-		if(current->priority > 0) //decrease priority if > 0
-			current->priority--;
-
-		break;
-
-	/*Interactive thread*/
-	case SCHED_IO:
-
-		if(current->priority < queueNum-1) //increase priority if < num of queues-1
-			current->priority++;
-
-		break;
-
-	/*Priority inversion*/
-	case SCHED_MUTEX:
-
-		if(current->curr_cause == current->last_cause){ 
-			
-			if(current->priority > 0) //decrease priority if > 0
-			current->priority--;
-
-		}
-
-		break;
-
-	default:
-
-		break;
-
 	}
 
 
@@ -601,11 +580,11 @@ static void idle_thread()
   Initialize the scheduler queue
  */
 void initialize_scheduler()
-{
-	for(int i = 0; i < queueNum; i++){	//Init every queue
-		rlnode_init(&SCHED[i], NULL);
+{   
+	yield_calls=0;
+	for(int i=0; i<NUM_OF_QUEUES; i++){
+	rlnode_init(&SCHED[i], NULL);
 	}
-
 	rlnode_init(&TIMEOUT_LIST, NULL);
 }
 

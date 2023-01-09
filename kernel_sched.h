@@ -23,6 +23,7 @@
 #include "bios.h"
 #include "tinyos.h"
 #include "util.h"
+#include "kernel_proc.h"
 
 /*****************************
  *
@@ -100,9 +101,8 @@ enum SCHED_CAUSE {
 typedef struct thread_control_block {
 
 	PCB* owner_pcb; /**< @brief This is null for a free TCB */
-
   PTCB* ptcb;
-
+  int priority;
 	cpu_context_t context; /**< @brief The thread context */
 	Thread_type type; /**< @brief The type of thread */
 	Thread_state state; /**< @brief The state of the thread */
@@ -119,8 +119,6 @@ typedef struct thread_control_block {
 	enum SCHED_CAUSE curr_cause; /**< @brief The endcause for the current time-slice */
 	enum SCHED_CAUSE last_cause; /**< @brief The endcause for the last time-slice */
 
-  int priority;
-
 #ifndef NVALGRIND
 	unsigned valgrind_stack_id; /**< @brief Valgrind helper for stacks. 
 
@@ -133,29 +131,6 @@ typedef struct thread_control_block {
 #endif
 
 } TCB;
-
-/* Process thread control block*/
-typedef struct process_thread_control_block{
-
-  TCB* tcb;
-
-  Task task;
-  int argl;
-  void* args;
-
-  int exitval;
-
-  int exited;
-  int detached;
-  CondVar exit_cv;
-
-  int refcount;
-
-  rlnode ptcb_list_node;
-
-
-} PTCB;
-
 
 /** @brief Thread stack size.
 
@@ -290,6 +265,8 @@ void yield(enum SCHED_CAUSE cause);
   has stopped (there are no more active threads) and the 
 */
 void run_scheduler(void);
+
+void boost(void);
 
 /**
   @brief Initialize the scheduler.
