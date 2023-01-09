@@ -3,6 +3,7 @@
 #include "kernel_sched.h"
 #include "kernel_cc.h"
 
+
 static file_ops reader ={
   .Open=NULL,
   .Read=pipe_read,

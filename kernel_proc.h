@@ -60,34 +60,14 @@ typedef struct process_control_block {
 
   FCB* FIDT[MAX_FILEID];  /**< @brief The fileid table of the process */
 
-  rlnode ptcb_list; /** list of ptcbs*/ 
-  int thread_count; /** counter holding the nubmer of threads*/
+  //List<PTCB> threads
+  rlnode ptcb_list;
+
+  int thread_count;
 
 } PCB;
 
-typedef struct process_thread_control_block {
-       
-
-             
-  int exitval;   
-  int exited;  /** flag for state of PTCB*/
-  int detached; /** flag for join compatibility*/
-  int refcount; /** counter for number of calls*/
-  CondVar exit_cv; /** threads that have been linked*/
-
-  rlnode ptcb_list_node;
-
-
-  TCB* tcb;       
-  Task task;         
-  int argl;               
-  void* args;             
-    
-
-} PTCB;
-
 void start_thread();
-
 /**
   @brief Initialize the process table.
 
