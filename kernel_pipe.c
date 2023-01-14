@@ -4,175 +4,170 @@
 #include "kernel_cc.h"
 
 
-static file_ops reader ={
-  .Open=NULL,
-  .Read=pipe_read,
-  .Write=useless,
-  .Close=pipe_reader_close
-};
-static file_ops writer ={
-  .Open=NULL,
-  .Read=useless,
-  .Write=pipe_write,
-  .Close=pipe_writer_close
+static file_ops reader_file_ops ={
+  .Open = NULL,
+  .Read = pipe_read,
+  .Write = not_used,
+  .Close = pipe_reader_close
 };
 
-int useless(void* pipecb_t, const char *buf, unsigned int n){
+static file_ops writer_file_ops ={
+  .Open = NULL,
+  .Read = not_used,
+  .Write = pipe_write,
+  .Close = pipe_writer_close
+};
+
+int not_used(void* pipecb_t, const char *buf, unsigned int n){
   return -1;
 }
 
 
 int sys_Pipe(pipe_t* pipe)
 { 
-  Fid_t fid[2];//new file id for read and write
-  FCB* fcb[2]; //new file control block for read and write
   
-  if (FCB_reserve(2,fid,fcb)==0)  //gia test 2 na mhn skaei
+  //Reserve
+  Fid_t fid[2];
+  FCB* fcb[2]; 
+  
+  if (FCB_reserve(2,fid,fcb) == 0)
   {
     return -1;
   }
 
-    pipe_cb* p=xmalloc(sizeof(pipe_cb));//reserve space for 
+  //Allocate space
+  pipe_cb* pipeCB = xmalloc(sizeof(pipe_cb)); 
 
-    pipe->read = fid[0];
-    pipe->write = fid[1];
-   
-    p->empty=PIPE_BUFFER_SIZE;
-    p->data=0;
-    p->reader=0;
-    p->writer=0;
-    p->has_space=COND_INIT;
-    p->has_data=COND_INIT;
-    p->w_position=0;
-    p->r_position=0;
+  pipe->read = fid[0];
+  pipe->write = fid[1];
+  
+  //Init pipe control block
+  pipeCB->space = PIPE_BUFFER_SIZE;
+  pipeCB->reader = 0;
+  pipeCB->writer = 0;
+  pipeCB->has_space = COND_INIT;
+  pipeCB->has_data = COND_INIT;
+  pipeCB->w_position = 0;
+  pipeCB->r_position = 0;
 
-    fcb[0]->streamobj=p;
-    fcb[1]->streamobj=p;
-    fcb[0]->streamfunc=&reader;
-    fcb[1]->streamfunc=&writer;
+  fcb[0]->streamobj = pipeCB;
+  fcb[1]->streamobj = pipeCB;
+  fcb[0]->streamfunc = &reader_file_ops;
+  fcb[1]->streamfunc = &writer_file_ops;
     
-    p->reader=fcb[0];
-    p->writer=fcb[1];
+  pipeCB->reader = fcb[0];
+  pipeCB->writer = fcb[1];
 
-return 0;
+  return 0;
 
 }
 
 int pipe_write(void* this,const char *buf, unsigned int size){
 
-  pipe_cb* p=(pipe_cb*)this;
-  assert(p!=NULL);
-  int count=0;
+  pipe_cb* pipeCB = (pipe_cb*)this;
+  
+  assert(pipeCB != NULL);
+  
+  int count = 0;
 
-  if (p->writer==NULL || p->reader==NULL){ //an o reader i o writer einai closed, return
+  //Wait while buffer is full and reader is open
+  while(pipeCB->space == 0 && pipeCB->reader != NULL){
+
+    kernel_wait(&pipeCB->has_space,SCHED_PIPE);
+  
+  }
+
+  if(pipeCB->reader == NULL)
     return -1;
-  }
 
+  while(count < pipeCB->space){ //oso uparxei xwros ston buffer grapse
+       
+        if(count >= size)
+          break;
 
-  while(p->empty==0 && p->reader!= NULL){//an den uparxei xwros gia na grapsei perimenei mexri na uparksei
-    kernel_wait(&p->has_space,SCHED_PIPE);
-  }
-
-  while ((p->w_position+1)%PIPE_BUFFER_SIZE==p->r_position && p->reader!=NULL){ //an paei o writer na grapsei sti thesi tou reader
-      
-          kernel_wait(&(p->has_space), SCHED_PIPE);//perimene mexri na eleutherwthei xwros
-          //kernel_broadcast(&p->has_data);//ksipna ton reader gia na diavasei
-
-   }
-
-  while (count<PIPE_BUFFER_SIZE && count!=size && (p->w_position+1)%PIPE_BUFFER_SIZE!=p->r_position && p->reader!=NULL && p->reader!=NULL){ //oso uparxei xwros ston buffer grapse
-        p->BUFFER[p->w_position]=buf[count]; //copy in pipe buffer                                                                           //kai oso o write pointer>apo read pointer
-        p->w_position=(p->w_position+1)%PIPE_BUFFER_SIZE; //next write position for bounded buffer
+        pipeCB->BUFFER[pipeCB->w_position] = buf[count]; //copy in pipe buffer
+        pipeCB->w_position = (pipeCB->w_position + 1)%PIPE_BUFFER_SIZE; //next write position for bounded buffer
+        
         count++;
-        p->data++;
-        p->empty--;
-      }
+        
+  }
 
-   kernel_broadcast(&p->has_data);
-   return count;//returns number of bytes copied in pipe buffer
+  pipeCB->space -= count;
 
+  kernel_broadcast(&pipeCB->has_data);
+
+  return count;//returns number of bytes copied in pipe buffer
 
 }
 
 int pipe_read(void* this, char *buf, unsigned int size){
 
-pipe_cb* p=(pipe_cb*)this;
-assert(p!=NULL);
-int count=0;
+  pipe_cb* pipeCB = (pipe_cb*)this;
+  
+  assert(pipeCB != NULL);
+  
+  int count = 0;
 
+  while(pipeCB->space == PIPE_BUFFER_SIZE && pipeCB->writer != NULL){//an o buffer einai adeios
 
-if (p->reader==NULL){
-  return -1;
-}
+    kernel_wait(&(pipeCB->has_data), SCHED_PIPE);
 
-if(p->writer==NULL){
-  if (p->data==0){
-    return 0;
-  }else {//periptwsi pou o writer exei kleisei kai o reader prepei na diavasei o,ti exei meinei
-    while(p->r_position!=p->w_position && count<size && count<PIPE_BUFFER_SIZE){
-            buf[count]=p->BUFFER[p->r_position];
-            p->BUFFER[p->r_position]=0;        //read and delete element
-            p->r_position=(p->r_position+1)%PIPE_BUFFER_SIZE; 
-            count++;
-            p->empty++;
-            p->data--;
-
-        }return count;//returns number of bytes copied in pipe buffer
-    }
-}
-
-
-while(p->data==0 && p->writer!= NULL){//an o buffer einai adeios
-
-  kernel_wait(&(p->has_data), SCHED_PIPE);
-
-}
-
-while (p->r_position==p->w_position && p->writer!=NULL ){ //an paei o reader na diavasei sti thesi pou grafei o writer
-      kernel_wait(&(p->has_data), SCHED_PIPE);
-          
   }
 
+  if(pipeCB->space == PIPE_BUFFER_SIZE)
+    return 0;
 
- while(count!=size && count<PIPE_BUFFER_SIZE && p->r_position!=p->w_position){
-      buf[count]=p->BUFFER[p->r_position];
-      p->BUFFER[p->r_position]=0;        //read and delete element
-      p->r_position=(p->r_position+1)%PIPE_BUFFER_SIZE; 
-      count++;
-      p->data--;
-      p->empty++;
-      
-   } 
- 
- 
-  kernel_broadcast(&p->has_space);
+  while(count < PIPE_BUFFER_SIZE - pipeCB->space){
+
+    if(count >= size)
+      break;
+
+    buf[count] = pipeCB->BUFFER[pipeCB->r_position];
+    pipeCB->r_position = (pipeCB->r_position + 1)%PIPE_BUFFER_SIZE;
+    
+    count++;
+  }
+   
+  pipeCB->space += count;
+  
+  kernel_broadcast(&pipeCB->has_space);
+
   return count; //returns number of bytes copied in pipe buffer  
 
 }
 
 int pipe_writer_close(void* this){
-  pipe_cb* p=(pipe_cb*) this;
-  assert(p!=NULL);
-  p->writer=NULL;  //close write end
-   kernel_broadcast(&(p->has_data));
+  
+  pipe_cb* pipeCB = (pipe_cb*) this;
+  
+  assert(pipeCB != NULL);
 
-  if(p->reader==NULL){ //if read end closed free pipe
-    p=NULL;
-    free(p);
+  pipeCB->writer = NULL;  //close write end
+  
+  kernel_broadcast(&(pipeCB->has_data));
+
+  if(pipeCB->reader == NULL){ //if read end closed free pipe
+    pipeCB = NULL;
+    free(pipeCB);
   }
+  
   return 0;
+
 }
 
 int pipe_reader_close(void* this){
-  pipe_cb* p=(pipe_cb*) this;
-  assert(p!=NULL);
-  p->reader=NULL;
-  kernel_broadcast(&(p->has_space));
+  
+  pipe_cb* pipeCB = (pipe_cb*) this;
+  assert(pipeCB != NULL);
 
-    if(p->writer==NULL){
-    p=NULL;
-    free(p);
-   
+  pipeCB->reader = NULL;
+  
+  kernel_broadcast(&(pipeCB->has_space));
+
+  if(pipeCB->writer == NULL){
+    pipeCB = NULL;
+    free(pipeCB); 
   }
-   return 0;
+
+  return 0;
 }
