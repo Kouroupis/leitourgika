@@ -357,10 +357,126 @@ void sys_Exit(int exitval)
   
 }
 
-
+static file_ops procinfo_ops = {
+  .Open = NULL,
+  .Read = procinfo_read,
+  .Write = not_used,
+  .Close = procinfo_close
+};
 
 Fid_t sys_OpenInfo()
 {
-  return NOFILE;
+
+  Fid_t fid;
+  FCB* fcb;
+
+  if(FCB_reserve(1, &fid, &fcb) == 0)
+    return NOFILE;
+
+  PICB* picb = (PICB*)xmalloc(sizeof(PICB));
+
+  picb->PCB_cursor = 1;
+  
+  fcb->streamobj = picb;
+  fcb->streamfunc = &procinfo_ops;
+
+  return fid;
 }
+
+int procinfo_close(void* procinfoCB_t){
+
+  if(procinfoCB_t == NULL)
+    return -1;
+  
+  free(procinfoCB_t);
+  
+  return 0;
+}
+
+int procinfo_read(void* procinfoCB_t, char* buf, unsigned int size){
+
+  PICB* picb = (PICB*)procinfoCB_t;
+
+  if(picb == NULL)
+    return -1;
+
+  while(picb->PCB_cursor < MAX_PROC){
+
+    if(PT[picb->PCB_cursor].pstate == FREE)
+      picb->PCB_cursor++;
+
+    else{
+
+      PCB pcb = PT[picb->PCB_cursor];
+
+      picb->p_info.pid = get_pid(&PT[picb->PCB_cursor]);
+      picb->p_info.ppid = get_pid(pcb.parent);
+
+      if(pcb.pstate == ALIVE)
+        picb->p_info.alive = 1;
+      else
+        picb->p_info.alive = 0;
+
+      picb->p_info.thread_count = pcb.thread_count;
+      picb->p_info.main_task = PT[picb->PCB_cursor].main_task;
+      picb->p_info.argl = pcb.argl;
+
+      int sizeof_args;
+      
+      if(pcb.argl > PROCINFO_MAX_ARGS_SIZE)
+        sizeof_args = PROCINFO_MAX_ARGS_SIZE;
+      else
+        sizeof_args = pcb.argl;
+
+      if(pcb.args != NULL)
+        memcpy(picb->p_info.args, pcb.args, sizeof_args);
+
+      memcpy(buf, (char*)&picb->p_info, size);
+
+      picb->PCB_cursor++;
+
+      return size;
+  
+      }
+
+    }
+
+
+  return 0;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
