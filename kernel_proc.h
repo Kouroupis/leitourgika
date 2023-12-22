@@ -16,17 +16,15 @@
 */ 
 
 #include "tinyos.h"
-#include "kernel_sched.h"
+#include "kernel_sched.h"\
 
 typedef struct process_info_control_block{
   procinfo p_info;
   int PCB_cursor;
-} PICB;
+}PICB;
 
 int procinfo_read(void* procinfo_cb, char* buf, unsigned int size);
 int procinfo_close(void* _pipecb);
-
-
 /**
   @brief PID state
 

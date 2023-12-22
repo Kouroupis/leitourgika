@@ -11,8 +11,8 @@
 #include <valgrind/valgrind.h>
 #endif
 
-#define queueNum 10 //Number of queues
-#define maxYieldCalls 1000
+#define queueNum 3 //Number of queues
+#define maxYieldCalls 69
 
 int yieldCalls = 0;
 
@@ -426,6 +426,16 @@ void yield(enum SCHED_CAUSE cause)
 
 	yieldCalls++; //Increase yield counter every time yield is called
 
+	/* Reset the timer, so that we are not interrupted by ALARM */
+	TimerDuration remaining = bios_cancel_timer();
+
+	/* We must stop preemption but save it! */
+	int preempt = preempt_off;
+
+	TCB* current = CURTHREAD; /* Make a local copy of current process, for speed */
+
+	Mutex_Lock(&sched_spinlock);
+
 	/*Priority Boost*/
 	if(yieldCalls == maxYieldCalls){	//If we reach max number of yield calls
 
@@ -448,17 +458,6 @@ void yield(enum SCHED_CAUSE cause)
 
 	}
 
-
-	/* Reset the timer, so that we are not interrupted by ALARM */
-	TimerDuration remaining = bios_cancel_timer();
-
-	/* We must stop preemption but save it! */
-	int preempt = preempt_off;
-
-	TCB* current = CURTHREAD; /* Make a local copy of current process, for speed */
-
-	Mutex_Lock(&sched_spinlock);
-
 	/* Update CURTHREAD state */
 	if (current->state == RUNNING)
 		current->state = READY;
@@ -470,21 +469,6 @@ void yield(enum SCHED_CAUSE cause)
 
 	/* Wake up threads whose sleep timeout has expired */
 	sched_wakeup_expired_timeouts();
-
-	/* Get next */
-	TCB* next = sched_queue_select(current);
-	assert(next != NULL);
-
-	/* Save the current TCB for the gain phase */
-	CURCORE.previous_thread = current;
-
-	Mutex_Unlock(&sched_spinlock);
-
-	/* Switch contexts */
-	if (current != next) {
-		CURTHREAD = next;
-		cpu_swap_context(&current->context, &next->context);
-	}
 
 	switch(cause){
 
@@ -522,6 +506,20 @@ void yield(enum SCHED_CAUSE cause)
 
 	}
 
+	/* Get next */
+	TCB* next = sched_queue_select(current);
+	assert(next != NULL);
+
+	/* Save the current TCB for the gain phase */
+	CURCORE.previous_thread = current;
+
+	Mutex_Unlock(&sched_spinlock);
+
+	/* Switch contexts */
+	if (current != next) {
+		CURTHREAD = next;
+		cpu_swap_context(&current->context, &next->context);
+	}
 
 	/* This is where we get after we are switched back on! A long time
 	   may have passed. Start a new timeslice...

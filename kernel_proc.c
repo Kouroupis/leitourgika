@@ -357,45 +357,34 @@ void sys_Exit(int exitval)
   
 }
 
+/*
 static file_ops procinfo_ops = {
   .Open = NULL,
   .Read = procinfo_read,
-  .Write = not_used,
+  .Write = NULL,
   .Close = procinfo_close
 };
-
+*/
 Fid_t sys_OpenInfo()
-{
-
+{/*
   Fid_t fid;
   FCB* fcb;
 
   if(FCB_reserve(1, &fid, &fcb) == 0)
     return NOFILE;
-
   PICB* picb = (PICB*)xmalloc(sizeof(PICB));
 
   picb->PCB_cursor = 1;
-  
+
   fcb->streamobj = picb;
   fcb->streamfunc = &procinfo_ops;
-
-  return fid;
-}
-
-int procinfo_close(void* procinfoCB_t){
-
-  if(procinfoCB_t == NULL)
-    return -1;
-  
-  free(procinfoCB_t);
-  
+*/
   return 0;
 }
+/*
+int procinfo_read(void* procinfo_cb, char* buf, unsigned int size){
 
-int procinfo_read(void* procinfoCB_t, char* buf, unsigned int size){
-
-  PICB* picb = (PICB*)procinfoCB_t;
+  PICB* picb = (PICB*)procinfo_cb;
 
   if(picb == NULL)
     return -1;
@@ -409,8 +398,8 @@ int procinfo_read(void* procinfoCB_t, char* buf, unsigned int size){
 
       PCB pcb = PT[picb->PCB_cursor];
 
-      picb->p_info.pid = get_pid(&PT[picb->PCB_cursor]);
-      picb->p_info.ppid = get_pid(pcb.parent);
+      picb->p_info.pid == get_pid(&PT[picb->PCB_cursor]);
+      picb->p_info.ppid == get_pid(pcb.parent);
 
       if(pcb.pstate == ALIVE)
         picb->p_info.alive = 1;
@@ -436,47 +425,19 @@ int procinfo_read(void* procinfoCB_t, char* buf, unsigned int size){
       picb->PCB_cursor++;
 
       return size;
-  
-      }
-
     }
-
+  }
 
   return 0;
-
 }
 
+int procinfo_close(void* _pipecb){
 
+  if(_pipecb == NULL)
+    return -1;
 
+  free(_pipecb);
+  return 0;
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+*/
