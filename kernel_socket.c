@@ -41,7 +41,7 @@ int sys_Listen(Fid_t sock)
 		return -1;
 	if(socket_cb->port == NOPORT || PORT_MAP[socket_cb->port] != NULL)
 		return -1;
-	if(socket_cb->type == SOCKET_UNBOUND)
+	if(socket_cb->type != SOCKET_UNBOUND)
 		return -1;
 
 	PORT_MAP[socket_cb->port] = socket_cb;
@@ -76,8 +76,12 @@ Fid_t sys_Accept(Fid_t lsock)
 	}
 
 	rlnode* client_node = rlist_pop_front(&server->listener_s.queue);
-	CON_REQ* con_req = client_node->con_req;
-		
+	//assert(client_node != NULL);
+
+	CON_REQ* con_req = client_node->obj;
+	
+	//CON_REQ* con_req = (CON_REQ*)rlist_pop_front(&server->listener_s.queue)->con_req;
+	
 	SOCKET_CB* client_peer = con_req->peer;
 	Fid_t server_peer_fid = sys_Socket(server->port);
 
@@ -154,7 +158,7 @@ int sys_Connect(Fid_t sock, port_t port, timeout_t timeout)
 
 	if(peer == NULL)
 		return -1;
-	if(peer->type == SOCKET_UNBOUND)
+	if(peer->type != SOCKET_UNBOUND)
 		return -1;
 	if(port <= 0 || port >= MAX_PORT)
 		return -1;
@@ -228,7 +232,7 @@ int socket_read(void* socketcb_t, char *buf, unsigned int size){
 
 	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
 
-	if(socket_cb == NULL)
+	if(socketcb_t == NULL)
 		return -1;
 	if(socket_cb->type != SOCKET_PEER )
 		return -1;
@@ -244,7 +248,7 @@ int socket_write(void* socketcb_t, const char *buf, unsigned int size){
 
 	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
 	
-	if(socket_cb == NULL)
+	if(socketcb_t == NULL)
 		return -1;
 	if(socket_cb->type != SOCKET_PEER)
 		return -1;

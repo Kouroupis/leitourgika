@@ -117,6 +117,9 @@ int pipe_read(void* pipecb_t, char *buf, unsigned int size){
 
 int pipe_writer_close(void* _pipecb){
 	
+	if(_pipecb == NULL)
+		return -1;
+
 	PIPE_CB* pipe_cb = (PIPE_CB*) _pipecb;
 
 	assert(pipe_cb != NULL);
@@ -133,7 +136,11 @@ int pipe_writer_close(void* _pipecb){
 }
 
 int pipe_reader_close(void* _pipecb){
-	
+		
+	if(_pipecb == NULL)
+		return -1;
+
+
 	PIPE_CB* pipe_cb = (PIPE_CB*) _pipecb;
 
 	assert(pipe_cb != NULL);
