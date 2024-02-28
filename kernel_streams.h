@@ -62,7 +62,7 @@ typedef struct pipe_control_block{
 	int w_position, r_position;
 	char BUFFER[PIPE_BUFFER_SIZE];
 
-	int space;
+	int space; //available space
 	
 } PIPE_CB;
 

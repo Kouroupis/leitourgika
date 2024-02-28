@@ -24,7 +24,7 @@ typedef struct process_info_control_block{
 }PICB;
 
 int procinfo_read(void* procinfo_cb, char* buf, unsigned int size);
-int procinfo_close(void* _pipecb);
+int procinfo_close(void* _picb);
 /**
   @brief PID state
 

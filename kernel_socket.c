@@ -76,7 +76,7 @@ Fid_t sys_Accept(Fid_t lsock)
 	}
 
 	rlnode* client_node = rlist_pop_front(&server->listener_s.queue);
-	//assert(client_node != NULL);
+	assert(client_node != NULL);
 
 	CON_REQ* con_req = client_node->obj;
 	
@@ -230,10 +230,11 @@ int sys_ShutDown(Fid_t sock, shutdown_mode how)
 
 int socket_read(void* socketcb_t, char *buf, unsigned int size){
 
-	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
-
 	if(socketcb_t == NULL)
 		return -1;
+
+	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
+
 	if(socket_cb->type != SOCKET_PEER )
 		return -1;
 	if(socket_cb->peer_s.read_pipe == NULL)
@@ -246,10 +247,11 @@ int socket_read(void* socketcb_t, char *buf, unsigned int size){
 
 int socket_write(void* socketcb_t, const char *buf, unsigned int size){
 
-	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
-	
 	if(socketcb_t == NULL)
 		return -1;
+	
+	SOCKET_CB* socket_cb = (SOCKET_CB*) socketcb_t;
+	
 	if(socket_cb->type != SOCKET_PEER)
 		return -1;
 	if(socket_cb->peer_s.write_pipe == NULL)
@@ -262,11 +264,11 @@ int socket_write(void* socketcb_t, const char *buf, unsigned int size){
 
 int socket_close(void* _socketcb){
 
-	SOCKET_CB* socket_cb = (SOCKET_CB*) _socketcb;
-
-	if(socket_cb == NULL)
+	if(_socketcb == NULL)
 		return -1;
 	
+	SOCKET_CB* socket_cb = (SOCKET_CB*) _socketcb;
+
 	switch(socket_cb->type){
 		case SOCKET_PEER:
 			pipe_reader_close(socket_cb->peer_s.read_pipe);
